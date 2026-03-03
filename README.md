@@ -2,6 +2,8 @@
 
 Browser extension untuk menyalin data tabel dari Adminer dengan format rapi dan fitur filter kolom.
 
+![Preview Extension](assets/docs/image-utama.png)
+
 ## ✨ Fitur
 
 - 📋 **Copy Table Data**: Salin data tabel dengan format CSV, TSV, atau HTML
@@ -11,6 +13,18 @@ Browser extension untuk menyalin data tabel dari Adminer dengan format rapi dan 
 - 🎨 **JSON Formatter**: Auto-format JSON dengan indentasi rapi
 - 🎨 **Modern UI**: Desain modern dengan Tailwind CSS, tanpa gradient
 - ✅ **Toast Notification**: Notifikasi sukses/error dengan informasi kolom yang di-copy
+
+## 📸 Screenshots
+
+### Preview Modal
+Preview detail setiap baris dengan modal yang menarik dan modern:
+
+![Preview Modal](assets/docs/image-preview.png)
+
+### Hidden Columns
+Fitur untuk menyembunyikan kolom yang tidak diperlukan:
+
+![Hidden Columns](assets/docs/image-hidden-column.png)
 
 ## 🚀 Instalasi
 
