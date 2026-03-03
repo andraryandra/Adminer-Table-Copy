@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Create Icons for Extension</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    canvas {
+      border: 1px solid #ccc;
+      margin: 10px;
+    }
+    button {
+      padding: 10px 20px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    .info {
+      background: #e3f2fd;
+      padding: 15px;
+      border-radius: 5px;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Generate Extension Icons</h1>
+  <div class="info">
+    <p>Klik tombol di bawah untuk membuat icon. Icon akan otomatis di-download.</p>
+    <p>Setelah download, pindahkan file ke folder <code>icons/</code></p>
+  </div>
+  
+  <div>
+    <canvas id="icon16" width="16" height="16"></canvas>
+    <canvas id="icon48" width="48" height="48"></canvas>
+    <canvas id="icon128" width="128" height="128"></canvas>
+  </div>
+  
+  <button onclick="generateIcons()">Generate & Download Icons</button>
+  
+  <script>
+    function generateIcons() {
+      const sizes = [16, 48, 128];
+      
+      sizes.forEach(size => {
+        const canvas = document.getElementById(`icon${size}`);
+        const ctx = canvas.getContext('2d');
+        
+        // Background
+        ctx.fillStyle = '#4CAF50';
+        ctx.fillRect(0, 0, size, size);
+        
+        // Border radius effect (manual)
+        ctx.globalCompositeOperation = 'destination-in';
+        ctx.beginPath();
+        ctx.roundRect(0, 0, size, size, size * 0.2);
+        ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
+        
+        // Icon: Clipboard
+        ctx.fillStyle = 'white';
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = size * 0.1;
+        
+        // Clipboard shape
+        const padding = size * 0.2;
+        const width = size - (padding * 2);
+        const height = size - (padding * 2);
+        
+        // Clipboard body
+        ctx.beginPath();
+        ctx.roundRect(padding, padding + size * 0.1, width, height - size * 0.1, size * 0.1);
+        ctx.fill();
+        
+        // Clipboard top
+        ctx.beginPath();
+        ctx.roundRect(padding + size * 0.15, padding, width * 0.7, size * 0.15, size * 0.05);
+        ctx.fill();
+        
+        // Lines on clipboard
+        ctx.strokeStyle = '#4CAF50';
+        ctx.lineWidth = size * 0.03;
+        for (let i = 0; i < 3; i++) {
+          const y = padding + size * 0.25 + (i * size * 0.15);
+          ctx.beginPath();
+          ctx.moveTo(padding + size * 0.1, y);
+          ctx.lineTo(padding + width - size * 0.1, y);
+          ctx.stroke();
+        }
+        
+        // Download
+        canvas.toBlob(blob => {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `icon${size}.png`;
+          a.click();
+          URL.revokeObjectURL(url);
+        });
+      });
+      
+      alert('Icons berhasil di-generate! Cek folder Downloads Anda.');
+    }
+    
+    // Polyfill untuk roundRect jika belum ada
+    if (!CanvasRenderingContext2D.prototype.roundRect) {
+      CanvasRenderingContext2D.prototype.roundRect = function(x, y, width, height, radius) {
+        this.beginPath();
+        this.moveTo(x + radius, y);
+        this.lineTo(x + width - radius, y);
+        this.quadraticCurveTo(x + width, y, x + width, y + radius);
+        this.lineTo(x + width, y + height - radius);
+        this.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+        this.lineTo(x + radius, y + height);
+        this.quadraticCurveTo(x, y + height, x, y + height - radius);
+        this.lineTo(x, y + radius);
+        this.quadraticCurveTo(x, y, x + radius, y);
+        this.closePath();
+      };
+    }
+    
+    // Generate preview saat load
+    window.onload = () => {
+      const sizes = [16, 48, 128];
+      sizes.forEach(size => {
+        const canvas = document.getElementById(`icon${size}`);
+        const ctx = canvas.getContext('2d');
+        
+        ctx.fillStyle = '#4CAF50';
+        ctx.fillRect(0, 0, size, size);
+        
+        ctx.fillStyle = 'white';
+        ctx.font = `bold ${size * 0.4}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('📋', size / 2, size / 2);
+      });
+    };
+  </script>
+</body>
+</html>

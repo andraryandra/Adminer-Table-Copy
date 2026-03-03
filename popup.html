@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Adminer Table Copy Settings</title>
+  <link rel="stylesheet" href="styles/tailwind.css">
+</head>
+<body class="w-[350px] p-5 bg-gray-100 font-sans">
+  <div class="text-center mb-5">
+    <h1 class="text-lg text-gray-800 mb-1">📋 Adminer Table Copy</h1>
+    <p class="text-xs text-gray-600">Konfigurasi copy data tabel</p>
+  </div>
+  
+  <div class="bg-white rounded-lg p-4 mb-4 shadow-sm">
+    <div class="text-sm font-bold text-gray-800 mb-2.5">Format Output</div>
+    <div class="mb-4 last:mb-0">
+      <label for="format" class="block text-xs text-gray-600 mb-1.5">Pilih format:</label>
+      <select id="format" class="w-full px-3 py-2.5 border-2 border-gray-700 rounded-lg text-xs bg-gray-50 text-gray-800 font-medium transition-all appearance-none bg-[url('data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 12 12\'%3E%3Cpath fill=\'%232d3748\' d=\'M6 9L1 4l1.4-1.4L6 6.2l3.6-3.6L11 4z\'/%3E%3C/svg%3E')] bg-no-repeat bg-[right_12px_center] pr-9 focus:outline-none focus:border-green-500 focus:bg-white focus:ring-2 focus:ring-green-500/20">
+        <option value="csv">CSV (Comma Separated)</option>
+        <option value="tsv">TSV (Tab Separated)</option>
+        <option value="html">HTML Table</option>
+      </select>
+    </div>
+    
+    <div id="includeHeadersContainer"></div>
+  </div>
+  
+  <div class="bg-white rounded-lg p-4 mb-4 shadow-sm">
+    <div class="text-sm font-bold text-gray-800 mb-2.5">Filter Kolom</div>
+    <div class="mb-4 last:mb-0">
+      <div class="text-xs text-gray-600 mt-1 italic">Pilih kolom yang ingin di-copy. Kosongkan untuk copy semua kolom.</div>
+      <div id="columnList" class="max-h-[200px] overflow-y-auto border border-gray-300 rounded p-3 bg-gray-50">
+        <div class="text-center text-gray-500 py-5">
+          Buka halaman Adminer dengan tabel untuk melihat daftar kolom
+        </div>
+      </div>
+    </div>
+    <div class="flex gap-2.5">
+      <button class="btn-secondary flex-1 px-4 py-2.5 bg-blue-100 text-blue-700 border-2 border-blue-700 rounded-lg text-xs font-bold cursor-pointer transition-all hover:bg-blue-200 hover:border-blue-900 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:shadow-sm" id="selectAll">Pilih Semua</button>
+      <button class="btn-secondary flex-1 px-4 py-2.5 bg-blue-100 text-blue-700 border-2 border-blue-700 rounded-lg text-xs font-bold cursor-pointer transition-all hover:bg-blue-200 hover:border-blue-900 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:shadow-sm" id="deselectAll">Hapus Semua</button>
+    </div>
+  </div>
+  
+  <div class="flex gap-2.5">
+    <button class="btn-primary flex-1 px-4 py-3 bg-green-100 text-green-700 border-2 border-green-700 rounded-lg text-xs font-bold cursor-pointer transition-all hover:bg-green-200 hover:border-green-900 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:shadow-sm" id="saveSettings">Simpan Pengaturan</button>
+  </div>
+  
+  <div id="status" class="mt-2.5 p-2 rounded text-xs text-center hidden"></div>
+  
+  <script src="components/modern-checkbox.js"></script>
+  <script src="popup.js"></script>
+  <script>
+    // Update status dengan Tailwind classes
+    function showStatus(message, type) {
+      const status = document.getElementById('status');
+      status.textContent = message;
+      status.className = `mt-2.5 p-2 rounded text-xs text-center ${
+        type === 'success' 
+          ? 'bg-green-100 text-green-800 block' 
+          : 'bg-red-100 text-red-800 block'
+      }`;
+      
+      setTimeout(() => {
+        status.className = 'mt-2.5 p-2 rounded text-xs text-center hidden';
+      }, 3000);
+    }
+    
+    // Override showStatus di popup.js jika ada
+    if (typeof window.showStatus === 'undefined') {
+      window.showStatus = showStatus;
+    }
+  </script>
+</body>
+</html>
