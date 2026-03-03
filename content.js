@@ -1867,6 +1867,59 @@ function showRowPreview(rowIndex) {
           .map(cb => parseInt(cb.dataset.columnIndex));
         if (selectedColumns.length === 0) { showToast('Pilih minimal satu kolom!', 'error', 2500); return; }
         
+        // Tampilkan loading indicator
+        const origBtnText = copyPreviewBtn.textContent;
+        copyPreviewBtn.textContent = '⏳ Expanding...';
+        copyPreviewBtn.disabled = true;
+        
+        // Expand semua kolom yang punya expand button dan belum expanded
+        const expandButtons = Array.from(modal.querySelectorAll('.adminer-preview-expand-value'));
+        const unexpandedButtons = expandButtons.filter(btn => {
+          const isChecked = btn.closest('tr')?.querySelector('.adminer-preview-column-select')?.checked;
+          return isChecked && btn.dataset.expanded !== 'true';
+        });
+        
+        // Trigger expand untuk semua yang belum expanded
+        const expandPromises = unexpandedButtons.map(async (expandBtn) => {
+          const valueId = expandBtn.dataset.valueId;
+          if (!valueId) return;
+          
+          const valueDiv = document.getElementById(valueId);
+          if (!valueDiv) return;
+          
+          const startLength = valueDiv.textContent.length;
+          
+          // Trigger expand
+          const clickEvent = new MouseEvent('click', {
+            bubbles: true,
+            cancelable: true,
+            view: window
+          });
+          expandBtn.dispatchEvent(clickEvent);
+          
+          // Tunggu data lengkap muncul (polling dengan timeout)
+          let attempts = 0;
+          const maxAttempts = 50; // 5 detik
+          
+          while (attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            const currentLength = valueDiv.textContent.length;
+            
+            if (currentLength > startLength || expandBtn.dataset.expanded === 'true') {
+              // Tunggu sedikit lagi untuk memastikan data sudah lengkap
+              await new Promise(resolve => setTimeout(resolve, 300));
+              break;
+            }
+            attempts++;
+          }
+        });
+        
+        // Tunggu semua expand selesai
+        await Promise.all(expandPromises);
+        
+        // Update button text
+        copyPreviewBtn.textContent = '⏳ Copying...';
+        
         // Ambil nama kolom yang dipilih untuk toast
         const tableData = extractTableData(findAdminerTable());
         const selectedColumnNames = selectedColumns
@@ -1874,6 +1927,10 @@ function showRowPreview(rowIndex) {
           .filter(Boolean);
         
         const success = await copyRowPreview(rowIndex, selectedColumns, copyTypeSelect.value, copyFormatSelect.value);
+        
+        // Restore button
+        copyPreviewBtn.textContent = origBtnText;
+        copyPreviewBtn.disabled = false;
         
         if (success) {
           const columnNamesText = selectedColumnNames.length > 3 
@@ -1934,7 +1991,25 @@ async function copyRowPreview(rowIndex, selectedColumnIndices, copyType, copyFor
   if (!rowData) { showToast('Data baris tidak ditemukan!', 'error', 2500); return; }
 
   const selectedHeaders = selectedColumnIndices.map(idx => tableData.headers[idx]);
-  const selectedValues = selectedColumnIndices.map(idx => rowData.data[idx] || 'NULL');
+  
+  // Ambil data dari modal preview jika ada (untuk mendapatkan data lengkap yang sudah di-expand)
+  const modal = document.getElementById('adminer-row-preview-modal');
+  const selectedValues = selectedColumnIndices.map(idx => {
+    if (modal) {
+      // Cari valueDiv di modal preview berdasarkan column index
+      const valueId = `adminer-preview-value-${idx}`;
+      const valueDiv = modal.querySelector(`#${valueId}`);
+      if (valueDiv) {
+        // Gunakan textContent dari modal (sudah di-expand dan lengkap)
+        const expandedValue = valueDiv.textContent || valueDiv.innerText || '';
+        if (expandedValue && expandedValue.trim().length > 0) {
+          return expandedValue.trim();
+        }
+      }
+    }
+    // Fallback ke data asli jika modal tidak ada atau valueDiv tidak ditemukan
+    return rowData.data[idx] || 'NULL';
+  });
 
   let text = '';
   if (copyFormat === 'formatted') {
