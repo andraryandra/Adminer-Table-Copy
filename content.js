@@ -555,6 +555,398 @@ function addControlsToTable(table) {
   }
 }
 
+// Fetch data lengkap dari export Adminer
+async function fetchFullDataFromExport(selectedRowIndices = []) {
+  try {
+    const table = findAdminerTable();
+    if (!table) return null;
+
+    // Ambil URL dan parameter dari halaman saat ini
+    const currentUrl = window.location.href;
+    const urlParams = new URLSearchParams(window.location.search);
+    
+    // Build export URL
+    const baseUrl = currentUrl.split('?')[0];
+    const exportParams = new URLSearchParams();
+    
+    // Copy parameter penting dari URL saat ini
+    if (urlParams.get('pgsql')) exportParams.set('pgsql', urlParams.get('pgsql'));
+    if (urlParams.get('username')) exportParams.set('username', urlParams.get('username'));
+    if (urlParams.get('db')) exportParams.set('db', urlParams.get('db'));
+    if (urlParams.get('ns')) exportParams.set('ns', urlParams.get('ns'));
+    if (urlParams.get('select')) exportParams.set('select', urlParams.get('select'));
+    
+    // Build form data untuk export
+    const formData = new FormData();
+    
+    // Ambil primary key dari row yang dipilih
+    const tableData = extractTableData(table);
+    if (!tableData) return null;
+    
+    // Cari primary key column (biasanya 'id' atau kolom pertama)
+    const idColumnIndex = tableData.headers.findIndex(h => h.toLowerCase() === 'id');
+    let primaryKeyName = idColumnIndex >= 0 ? tableData.headers[idColumnIndex] : tableData.headers[0];
+    
+    // Tambahkan check[] untuk setiap row yang dipilih
+    selectedRowIndices.forEach(rowIdx => {
+      const rowData = tableData.data.find(r => r.index === rowIdx);
+      if (rowData && idColumnIndex >= 0 && rowData.data[idColumnIndex]) {
+        const pkValue = rowData.data[idColumnIndex];
+        if (pkValue && pkValue !== 'NULL' && pkValue.trim() !== '') {
+          formData.append('check[]', `where[${primaryKeyName}]=${pkValue}`);
+        }
+      }
+    });
+    
+    // Jika tidak ada row yang dipilih, ambil semua row yang terlihat
+    if (selectedRowIndices.length === 0) {
+      tableData.data.forEach(rowData => {
+        if (idColumnIndex >= 0 && rowData.data[idColumnIndex]) {
+          const pkValue = rowData.data[idColumnIndex];
+          if (pkValue && pkValue !== 'NULL' && pkValue.trim() !== '') {
+            formData.append('check[]', `where[${primaryKeyName}]=${pkValue}`);
+          }
+        }
+      });
+    }
+    
+    // Set export parameters
+    formData.append('output', 'text');
+    formData.append('format', 'sql');
+    formData.append('export', 'Export');
+    formData.append('separator', 'csv');
+    
+    // Ambil token dari halaman (jika ada)
+    const tokenInput = document.querySelector('input[name="token"]');
+    if (tokenInput) {
+      formData.append('token', tokenInput.value);
+    }
+    
+    // Fetch export data
+    const exportUrl = `${baseUrl}?${exportParams.toString()}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 detik timeout
+    
+    const response = await fetch(exportUrl, {
+      method: 'POST',
+      credentials: 'include',
+      signal: controller.signal,
+      body: formData,
+      headers: {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      console.warn('[Adminer Ext] ⚠️ Export fetch gagal:', response.status);
+      return null;
+    }
+    
+    const exportText = await response.text();
+    
+    // Debug: log response untuk troubleshooting
+    console.log('[Adminer Ext] 🔍 Export response preview:', exportText.substring(0, 500));
+    
+    // Parse SQL INSERT statement untuk extract data
+    return parseExportData(exportText, tableData.headers);
+    
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      console.warn('[Adminer Ext] ⚠️ Export fetch timeout');
+    } else {
+      console.error('[Adminer Ext] ❌ Error fetching export:', err);
+    }
+    return null;
+  }
+}
+
+// Parse SQL INSERT statement untuk extract data lengkap
+function parseExportData(exportText, headers) {
+  try {
+    // Cek apakah response adalah HTML (mungkin ada wrapper)
+    let sqlText = exportText;
+    
+    // Jika response adalah HTML, cari <pre> atau <code> yang berisi SQL
+    const htmlMatch = exportText.match(/<pre[^>]*>([\s\S]*?)<\/pre>/i) || 
+                      exportText.match(/<code[^>]*>([\s\S]*?)<\/code>/i) ||
+                      exportText.match(/<textarea[^>]*>([\s\S]*?)<\/textarea>/i);
+    
+    if (htmlMatch) {
+      sqlText = htmlMatch[1];
+      console.log('[Adminer Ext] ✅ SQL ditemukan di HTML tag');
+    }
+    
+    // Cari pattern INSERT INTO ... VALUES ...
+    // Pattern lebih fleksibel: bisa ada whitespace, newline, dll
+    let insertMatch = sqlText.match(/INSERT\s+INTO[^(]+\([^)]+\)\s+VALUES\s*([\s\S]+?);/i) ||
+                      sqlText.match(/INSERT\s+INTO[^(]+\([^)]+\)\s*VALUES\s*([\s\S]+?);/i) ||
+                      sqlText.match(/INSERT\s+INTO[^V]+VALUES\s*([\s\S]+?);/i);
+    
+    if (!insertMatch) {
+      // Coba pattern alternatif tanpa semicolon di akhir
+      insertMatch = sqlText.match(/INSERT\s+INTO[^(]+\([^)]+\)\s+VALUES\s*([\s\S]+)/i) ||
+                    sqlText.match(/INSERT\s+INTO[^(]+\([^)]+\)\s*VALUES\s*([\s\S]+)/i);
+      
+      if (insertMatch) {
+        console.log('[Adminer Ext] ✅ INSERT statement ditemukan (tanpa semicolon)');
+      }
+    }
+    
+    if (!insertMatch) {
+      // Coba cari pattern yang lebih umum
+      insertMatch = sqlText.match(/VALUES\s*\(([\s\S]+?)\)/i);
+      if (insertMatch) {
+        console.log('[Adminer Ext] ✅ VALUES ditemukan (pattern alternatif)');
+      }
+    }
+    
+    if (!insertMatch) {
+      console.warn('[Adminer Ext] ⚠️ INSERT statement tidak ditemukan');
+      console.log('[Adminer Ext] 🔍 Response text length:', sqlText.length);
+      console.log('[Adminer Ext] 🔍 Response text preview (first 2000 chars):', sqlText.substring(0, 2000));
+      console.log('[Adminer Ext] 🔍 Contains INSERT?', sqlText.includes('INSERT'));
+      console.log('[Adminer Ext] 🔍 Contains VALUES?', sqlText.includes('VALUES'));
+      return null;
+    }
+    
+    // Extract column names dari INSERT INTO statement
+    let insertIntoMatch = sqlText.match(/INSERT\s+INTO[^(]+\(([^)]+)\)/i);
+    if (!insertIntoMatch) {
+      // Coba pattern alternatif
+      insertIntoMatch = sqlText.match(/INSERT\s+INTO\s+[^(]+\(([^)]+)\)/i);
+    }
+    
+    let exportColumnNames = [];
+    if (insertIntoMatch) {
+      exportColumnNames = insertIntoMatch[1]
+        .split(',')
+        .map(col => col.trim().replace(/^["']|["']$/g, ''))
+        .filter(Boolean);
+      console.log('[Adminer Ext] ✅ Column names extracted:', exportColumnNames.length);
+    } else {
+      console.warn('[Adminer Ext] ⚠️ Column names tidak ditemukan, gunakan headers dari table');
+      exportColumnNames = headers;
+    }
+    
+    const valuesText = insertMatch[1].trim();
+    console.log('[Adminer Ext] ✅ VALUES text length:', valuesText.length);
+    
+    return parseValues(valuesText, exportColumnNames, headers);
+    
+  } catch (err) {
+    console.error('[Adminer Ext] ❌ Error parsing export data:', err);
+    return null;
+  }
+}
+
+// Parse VALUES text untuk extract data
+function parseValues(valuesText, exportColumnNames, headers) {
+  try {
+    // Parse VALUES - split rows dengan lebih hati-hati
+    // Pattern: (value1, value2, ...), (value1, value2, ...)
+    const rows = [];
+    let depth = 0;
+    let inQuotes = false;
+    let quoteChar = null;
+    let currentRow = '';
+    let escapeNext = false;
+    
+    for (let i = 0; i < valuesText.length; i++) {
+      const char = valuesText[i];
+      
+      if (escapeNext) {
+        currentRow += char;
+        escapeNext = false;
+        continue;
+      }
+      
+      if (char === '\\') {
+        escapeNext = true;
+        currentRow += char;
+        continue;
+      }
+      
+      if (!inQuotes && (char === '"' || char === "'")) {
+        inQuotes = true;
+        quoteChar = char;
+        currentRow += char;
+        continue;
+      }
+      
+      if (inQuotes && char === quoteChar) {
+        // Check if it's escaped quote (double quote) or end of string
+        if (i + 1 < valuesText.length && valuesText[i + 1] === quoteChar) {
+          currentRow += char + char;
+          i++; // Skip next quote
+          continue;
+        }
+        inQuotes = false;
+        quoteChar = null;
+        currentRow += char;
+        continue;
+      }
+      
+      if (!inQuotes) {
+        if (char === '(') {
+          depth++;
+          if (depth === 1) {
+            // Start of new row, reset currentRow
+            currentRow = '';
+            continue;
+          }
+        } else if (char === ')') {
+          depth--;
+          if (depth === 0) {
+            // End of row
+            rows.push(currentRow.trim());
+            currentRow = '';
+            // Skip comma and whitespace after )
+            i++;
+            while (i < valuesText.length && (valuesText[i] === ',' || valuesText[i] === ' ' || valuesText[i] === '\n' || valuesText[i] === '\t' || valuesText[i] === '\r')) {
+              i++;
+            }
+            i--; // Adjust for loop increment
+            continue;
+          }
+        }
+      }
+      
+      currentRow += char;
+    }
+    
+    // Jika masih ada currentRow (untuk single row tanpa closing paren di akhir)
+    if (currentRow.trim() && rows.length === 0) {
+      rows.push(currentRow.trim());
+    }
+    
+    // Parse each row to extract values
+    const parsedData = rows.map(rowText => {
+      const values = [];
+      let current = '';
+      let inQuotes = false;
+      let quoteChar = null;
+      let escapeNext = false;
+      let depth = 0;
+      
+      for (let i = 0; i < rowText.length; i++) {
+        const char = rowText[i];
+        
+        if (escapeNext) {
+          current += char;
+          escapeNext = false;
+          continue;
+        }
+        
+        if (char === '\\') {
+          escapeNext = true;
+          current += char;
+          continue;
+        }
+        
+        if (!inQuotes && (char === '"' || char === "'")) {
+          inQuotes = true;
+          quoteChar = char;
+          current += char;
+          continue;
+        }
+        
+        if (inQuotes && char === quoteChar) {
+          // Check if it's escaped quote
+          if (i + 1 < rowText.length && rowText[i + 1] === quoteChar) {
+            current += char + char;
+            i++;
+            continue;
+          }
+          inQuotes = false;
+          quoteChar = null;
+          current += char;
+          continue;
+        }
+        
+        if (!inQuotes) {
+          if (char === '(' || char === '[' || char === '{') {
+            depth++;
+            current += char;
+            continue;
+          } else if (char === ')' || char === ']' || char === '}') {
+            depth--;
+            current += char;
+            continue;
+          } else if (char === ',' && depth === 0) {
+            // End of value (only if not inside brackets)
+            values.push(current.trim());
+            current = '';
+            // Skip whitespace after comma
+            i++;
+            while (i < rowText.length && (rowText[i] === ' ' || rowText[i] === '\t')) {
+              i++;
+            }
+            i--; // Adjust for loop increment
+            continue;
+          }
+        }
+        
+        current += char;
+      }
+      
+      // Add last value
+      if (current.trim()) {
+        values.push(current.trim());
+      }
+      
+      // Clean values: remove quotes, handle NULL
+      return values.map(val => {
+        val = val.trim();
+        if (val === 'NULL' || val === 'null') return 'NULL';
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+          // Remove outer quotes and unescape
+          val = val.slice(1, -1);
+          // Unescape: '' -> ', "" -> "
+          val = val.replace(/''/g, "'").replace(/""/g, '"');
+        }
+        return val;
+      });
+    });
+    
+    // Map export columns ke table headers jika urutan berbeda
+    let mappedData = parsedData;
+    if (exportColumnNames.length > 0 && exportColumnNames.length === headers.length) {
+      // Buat mapping index: exportIndex -> tableHeaderIndex
+      const columnMapping = headers.map(tableHeader => {
+        const exportIndex = exportColumnNames.findIndex(expCol => 
+          expCol.toLowerCase() === tableHeader.toLowerCase()
+        );
+        return exportIndex >= 0 ? exportIndex : -1;
+      });
+      
+      // Reorder data sesuai dengan urutan table headers
+      mappedData = parsedData.map(row => {
+        return columnMapping.map(expIdx => {
+          if (expIdx >= 0 && expIdx < row.length) {
+            return row[expIdx];
+          }
+          return 'NULL';
+        });
+      });
+    }
+    
+    console.log('[Adminer Ext] ✅ Parsed export data:', { 
+      rows: mappedData.length, 
+      columns: mappedData[0]?.length,
+      exportColumns: exportColumnNames.length,
+      tableColumns: headers.length
+    });
+    return mappedData;
+    
+  } catch (err) {
+    console.error('[Adminer Ext] ❌ Error parsing export data:', err);
+    return null;
+  }
+}
+
 // Copy row tertentu
 async function copyRow(rowIndex) {
   try {
@@ -573,22 +965,53 @@ async function copyRow(rowIndex) {
     const tableData = extractTableData(table);
     if (!tableData) { showToast('Gagal membaca data table!', 'error', 2500); return; }
 
-    // Cari data yang sesuai dengan rowIndex
-    const rowDataObj = tableData.data.find(r => r.index === rowIndex);
-    if (!rowDataObj) {
-      // Fallback: gunakan index langsung jika tidak ditemukan
-      if (rowIndex < tableData.data.length) {
-        const text = formatAsCSV({ headers: tableData.headers, data: [tableData.data[rowIndex]] });
-        const success = await copyToClipboard(text);
-        if (success) {
-          showToast('Berhasil menyalin baris!', 'success', 2000);
-        } else {
-          showToast('Gagal menyalin data!', 'error', 2500);
-        }
+    // Tampilkan loading
+    showToast('⏳ Mengambil data lengkap...', 'success', 2000);
+    
+    // Fetch data lengkap dari export
+    const exportData = await fetchFullDataFromExport([rowIndex]);
+    
+    let rowDataObj;
+    if (exportData && exportData.length > 0) {
+      // Cari primary key untuk mapping
+      const idColumnIndex = tableData.headers.findIndex(h => h.toLowerCase() === 'id');
+      const currentRowData = tableData.data.find(r => r.index === rowIndex);
+      
+      if (idColumnIndex >= 0 && currentRowData) {
+        const currentPkValue = currentRowData.data[idColumnIndex];
+        
+        // Cari row di export data yang sesuai dengan primary key
+        const exportRow = exportData.find(expRow => {
+          if (expRow.length > idColumnIndex) {
+            // Compare primary key value (bisa dengan atau tanpa quotes)
+            const expPkValue = expRow[idColumnIndex].replace(/^["']|["']$/g, '');
+            return expPkValue === currentPkValue || expPkValue === currentPkValue.replace(/^["']|["']$/g, '');
+          }
+          return false;
+        }) || exportData[0]; // Fallback ke first row jika tidak ditemukan
+        
+        rowDataObj = {
+          index: rowIndex,
+          data: exportRow.slice(0, tableData.headers.length) // Match dengan jumlah headers
+        };
       } else {
-        showToast(`Index baris tidak valid: ${rowIndex} (total: ${tableData.data.length})`, 'error', 2500);
+        // Gunakan first row dari export jika tidak ada primary key
+        rowDataObj = {
+          index: rowIndex,
+          data: exportData[0].slice(0, tableData.headers.length)
+        };
       }
-      return;
+    } else {
+      // Fallback ke data dari table
+      rowDataObj = tableData.data.find(r => r.index === rowIndex);
+      if (!rowDataObj) {
+        if (rowIndex < tableData.data.length) {
+          rowDataObj = { index: rowIndex, data: tableData.data[rowIndex].data };
+        } else {
+          showToast(`Index baris tidak valid: ${rowIndex} (total: ${tableData.data.length})`, 'error', 2500);
+          return;
+        }
+      }
     }
 
     const text = formatAsCSV({ headers: tableData.headers, data: [rowDataObj] });
@@ -615,16 +1038,63 @@ async function copySelectedRows() {
 
   const selectedIndices = Array.from(checkboxes).map(cb => parseInt(cb.dataset.rowIndex));
   const tableData = extractTableData(table);
+  
+  if (!tableData) { showToast('Gagal membaca data table!', 'error', 2500); return; }
 
-  // Cari data yang sesuai dengan rowIndex (bukan menggunakan index langsung)
-  const selectedData = {
-    headers: tableData.headers,
-    data: selectedIndices.map(idx => {
-      // Cari data yang index-nya sesuai dengan idx
-      const rowData = tableData.data.find(r => r.index === idx);
-      return rowData || (idx < tableData.data.length ? tableData.data[idx] : null);
-    }).filter(Boolean)
-  };
+  // Tampilkan loading
+  showToast('⏳ Mengambil data lengkap...', 'success', 2000);
+  
+  // Fetch data lengkap dari export
+  const exportData = await fetchFullDataFromExport(selectedIndices);
+  
+  let selectedData;
+  if (exportData && exportData.length > 0) {
+    // Cari primary key untuk mapping
+    const idColumnIndex = tableData.headers.findIndex(h => h.toLowerCase() === 'id');
+    
+    // Map export data ke selected indices berdasarkan primary key
+    const mappedData = selectedIndices.map(originalIdx => {
+      const currentRowData = tableData.data.find(r => r.index === originalIdx);
+      if (!currentRowData) return null;
+      
+      if (idColumnIndex >= 0) {
+        const currentPkValue = currentRowData.data[idColumnIndex];
+        
+        // Cari row di export data yang sesuai dengan primary key
+        const exportRow = exportData.find(expRow => {
+          if (expRow.length > idColumnIndex) {
+            const expPkValue = expRow[idColumnIndex].replace(/^["']|["']$/g, '');
+            return expPkValue === currentPkValue || expPkValue === currentPkValue.replace(/^["']|["']$/g, '');
+          }
+          return false;
+        });
+        
+        if (exportRow) {
+          return {
+            index: originalIdx,
+            data: exportRow.slice(0, tableData.headers.length)
+          };
+        }
+      }
+      
+      // Fallback: gunakan data dari table jika tidak ditemukan di export
+      return currentRowData;
+    }).filter(Boolean);
+    
+    selectedData = {
+      headers: tableData.headers,
+      data: mappedData
+    };
+  } else {
+    // Fallback ke data dari table
+    selectedData = {
+      headers: tableData.headers,
+      data: selectedIndices.map(idx => {
+        const rowData = tableData.data.find(r => r.index === idx);
+        return rowData || (idx < tableData.data.length ? tableData.data[idx] : null);
+      }).filter(Boolean)
+    };
+  }
 
   const text = formatAsCSV(selectedData);
   const success = await copyToClipboard(text);
